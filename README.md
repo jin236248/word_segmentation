@@ -1,2 +1,2 @@
 # word_segmentation
-Please unzip some files in dataset folder.
+Please unzip files in dataset folder.
