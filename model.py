@@ -161,3 +161,4 @@ class BiLSTM_CRF(nn.Module):
         loss = torch.sum(partition - gold_scores)
     
         return max_final_scores, best_sequences, loss
+        

@@ -94,7 +94,8 @@ def prepare_sequence(seq, stoi):
 def ids_to_tags(seq, itos):
     return [itos[x] for x in seq]
 
-def train(model, _to_ix, n_epoch, bs, learn_rate, train_data, validate_data, best_score, name_to_save='', modeltype='sy', shuffle=True, drop=True):
+def train(model, _to_ix, n_epoch, bs, learn_rate, train_data, validate_data, 
+          best_score, name_to_save='', modeltype='sy', shuffle=True, drop=True):
     
     optimizer = optim.SGD(model.parameters(), lr=learn_rate, weight_decay=1e-4)
     dataset = SyllablesDataset(train_data, _to_ix)
@@ -133,7 +134,6 @@ def train(model, _to_ix, n_epoch, bs, learn_rate, train_data, validate_data, bes
             torch.save(model.state_dict(), 'model/' + name_to_save + '.pth')
                         
     return best_score
-
                     
 def get_tags(model, _to_ix, dataset, bs):
     

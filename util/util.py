@@ -7,7 +7,6 @@ def show_progress(i, onetenth):
     if i % onetenth == onetenth - 1:print(i // onetenth, end='')
 
 def preprocessing(txt: str, remove_space: bool = True) -> str:
-
     # from pythainlp
     
     SEPARATOR = "|"

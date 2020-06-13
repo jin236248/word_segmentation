@@ -204,3 +204,4 @@ def _find_words_correctly_tokenised(ref_boundaries, predicted_boundaries):
 
     labels = tuple(map(lambda x: ref_b.get(x, 0), predicted_boundaries))
     return labels
+    
