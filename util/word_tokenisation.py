@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+# This file is from Pythainlp
+
 import sys
 import re
 
