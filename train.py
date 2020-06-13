@@ -20,7 +20,7 @@ class SyllablesDataset(Dataset):
             idx = idx.tolist()
         return self.data[idx]
     
-    def my_collate(self, batch):
+    def collate_fn(self, batch):
         
         this_bs = len(batch)
         max_sent_size = max([len(item[0]) for item in batch])
@@ -29,7 +29,6 @@ class SyllablesDataset(Dataset):
         x2s, x3s = x1s, x1s # same
         xtags = torch.full((this_bs, max_sent_size), Const.PAD_TAG_ID, dtype=torch.long).cuda()
         lengths = []
-        
         n_data = len(batch[0])-1 # how many x
             
         if n_data == 1:
@@ -104,7 +103,7 @@ def train(model, _to_ix, n_epoch, bs, learn_rate, train_data, validate_data, bes
     for epoch in range(n_epoch):
         begin = datetime.now()
         print(f'epoch: {epoch}, progress: ', end='')
-        dataloader = DataLoader(dataset, batch_size=bs, shuffle=shuffle, collate_fn=dataset.my_collate)
+        dataloader = DataLoader(dataset, batch_size=bs, shuffle=shuffle, collate_fn=dataset.collate_fn)
         
         n_data = len(train_data[0])-1
         
@@ -123,11 +122,14 @@ def train(model, _to_ix, n_epoch, bs, learn_rate, train_data, validate_data, bes
             show_progress(i, onetenth)
             
         report_time(begin)
-        score = validate(model, _to_ix, validate_data, bs)
+
+        # validate
+        pred_tags, correct_tags, _, _ = get_tags(model, _to_ix, dataset, bs)
+        score = accuracy_score(correct_tags, pred_tags) * 100
         print(f'score: {score:.2f}')
         
         if name_to_save != '' and score > best_score:
-            best_validate = validate
+            best_score = score
             torch.save(model.state_dict(), 'model/' + name_to_save + '.pth')
                         
     return best_score
@@ -137,9 +139,8 @@ def get_tags(model, _to_ix, dataset, bs):
     
     dataset = SyllablesDataset(dataset, _to_ix)
     with torch.no_grad():
-        pred_tags, correct_tags, pred_tags2 = [],[],[]
-        dataloader = DataLoader(dataset, batch_size=bs, shuffle=False, collate_fn=dataset.my_collate)
-        
+        pred_tags_notflat, pred_tags, correct_tags  = [],[],[]
+        dataloader = DataLoader(dataset, batch_size=bs, collate_fn=dataset.collate_fn)
         n_data = len(dataset[0])-1
 
         for i, data in enumerate(dataloader):
@@ -158,24 +159,13 @@ def get_tags(model, _to_ix, dataset, bs):
                 x1s, x2s, x3s, xtags, lengths = data
                 mask = (x1s != Const.PAD_ID).float()
                 _, seqs, _ = model(x1s, x2s, x3s, xtags, mask=mask, drop=False)
-            
-            for j, seq in enumerate(seqs): 
-                pred_tags += seq[:lengths[j]] # seqs without pad
                 
-            seqs_wopad = []
-            for j, seq in enumerate(seqs): 
-                seqs_wopad.append(seq[:lengths[j]])
-            pred_tags2 += seqs_wopad  
-                
-            correct_tags += [x for y in xtags.tolist() for x in y if x != 0] # targets without pad
+            pred_tags_notflat += [seq[:length] for seq, length in zip(seqs, lengths)] 
+            pred_tags = [tag for seqs in pred_tags_notflat for tag in seqs] 
+            correct_tags += [x for y in xtags.tolist() for x in y if x != Const.PAD_TAG_ID] # targets without pad
             
-        return pred_tags, correct_tags, lengths, pred_tags2
+        return pred_tags, correct_tags, lengths, pred_tags_notflat
     
-def validate(model, _to_ix, dataset, bs):
-    
-    pred_tags, correct_tags, lengths, _ = get_tags(model, _to_ix, dataset, bs)
-
-    return accuracy_score(correct_tags, pred_tags) * 100
 
 def build_pred_text(_to_ix, test_data, pred_tags, modeltype='sy'):
 
@@ -184,25 +174,12 @@ def build_pred_text(_to_ix, test_data, pred_tags, modeltype='sy'):
     
     # if model is bigram, we choose only the first char in bigram to build pred_text
     if modeltype=='bi': 
-        new_test_data = []
-        for bis, tags in test_data:
-            chs = [bi[0] for bi in bis]
-            new_test_data.append((chs, tags))
-        test_data = new_test_data
-    
+        test_data = [([bi[0] for bi in bis], tags) for bis, tags in test_data]
     elif modeltype=='chctbi': 
-        new_test_data = []
-        for chs, cts, bis, tags in test_data:
-            new_test_data.append((chs, tags))
-        test_data = new_test_data
-    
+        test_data = [(chs, tags) for chs, cts, bis, tags in test_data]
     elif modeltype=='bictsy': 
-        new_test_data = []
-        for bis, cts, sys, tags in test_data:
-            chs = [bi[0] for bi in bis]
-            new_test_data.append((chs, tags))
-        test_data = new_test_data
-    
+        test_data = [([bi[0] for bi in bis], tags) for bis, cts, sys, tags in test_data]
+
     newsent = ''
     for i, tags in enumerate(pred_tags): # each line
         newsent += test_data[i][0][0] # first syllable
