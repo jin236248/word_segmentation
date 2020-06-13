@@ -11,6 +11,7 @@ def get_vocabs(train_data):
                 Const.PAD_TOKEN: Const.PAD_ID, 
                 Const.BOS_TOKEN: Const.BOS_ID, 
                 Const.EOS_TOKEN: Const.EOS_ID}
+    
     x2_to_ix, x3_to_ix = x1_to_ix, x1_to_ix # same
     
     tag_to_ix = {Const.PAD_TAG_TOKEN: Const.PAD_TAG_ID, 
@@ -28,7 +29,6 @@ def get_vocabs(train_data):
                 if x1 not in x1_to_ix: x1_to_ix[x1] = len(x1_to_ix)
                 if tag not in tag_to_ix: tag_to_ix[tag] = len(tag_to_ix) 
                     
-        # print('size of dict:', len(x1_to_ix))
         return [x1_to_ix, tag_to_ix]
             
     if n_data == 2:
@@ -41,7 +41,6 @@ def get_vocabs(train_data):
                 if x2 not in x2_to_ix: x2_to_ix[x2] = len(x2_to_ix)
                 if tag not in tag_to_ix: tag_to_ix[tag] = len(tag_to_ix) 
                     
-        # print('size of dict:', len(x1_to_ix), len(x2_to_ix))
         return [x1_to_ix, x2_to_ix, tag_to_ix]
             
     if n_data == 3:
@@ -55,8 +54,28 @@ def get_vocabs(train_data):
                 if x3 not in x3_to_ix: x3_to_ix[x3] = len(x3_to_ix)
                 if tag not in tag_to_ix: tag_to_ix[tag] = len(tag_to_ix)
                     
-        # print('size of dict:', len(x1_to_ix), len(x2_to_ix), len(x3_to_ix))
         return [x1_to_ix, x2_to_ix, x3_to_ix, tag_to_ix]
+
+def reduce_vocabs(dataset, _to_ix, min_freq):
+
+    if min_freq != None:
+        for i in range(len(min_freq)): # exclude tag_to_ix
+            if min_freq[i] > 1:
+                vocab = [x for data in dataset for x in data[i]]
+                sc = Counter(vocab)
+
+                newx_to_ix = {Const.UNK_TOKEN: Const.UNK_ID, 
+                             Const.PAD_TOKEN: Const.PAD_ID, 
+                             Const.BOS_TOKEN: Const.BOS_ID, 
+                             Const.EOS_TOKEN: Const.EOS_ID}
+                
+                for k,v in _to_ix[i].items():
+                    if sc[k] >= min_freq[i] and k not in newx_to_ix:
+                        newx_to_ix[k] = len(newx_to_ix)
+
+                _to_ix[i] = newx_to_ix
+
+    return _to_ix
 
 def addsep(obj):
     '''
@@ -74,7 +93,6 @@ def build_dataset(datasetname, charlevel=True, min_freq=None):
     '''
     for code to be simple, test will have dummy labels
     '''
-     
     for directory in ['train', 'validate', 'test']:
         
         dataset = []
@@ -254,30 +272,3 @@ def build_dataset(datasetname, charlevel=True, min_freq=None):
 
             with open('dataset/' + datasetname + '_dict.json', 'w') as file:
                 json.dump(_to_ix, file)
-
-def reduce_vocabs(dataset, _to_ix, min_freq):
-
-    if min_freq == None:
-        print('none')
-        return _to_ix
-    else:
-        for i in range(len(min_freq)): # exclude tag_to_ix
-            if min_freq[i] > 1:
-                vocab = []
-                for data in dataset:
-                    for x in data[i]:
-                        vocab.append(x)
-                sc = Counter(vocab)
-
-                newx_to_ix = {Const.UNK_TOKEN: Const.UNK_ID, 
-                             Const.PAD_TOKEN: Const.PAD_ID, 
-                             Const.BOS_TOKEN: Const.BOS_ID, 
-                             Const.EOS_TOKEN: Const.EOS_ID}
-                
-                for k,v in _to_ix[i].items():
-                    if sc[k] >= min_freq[i]:
-                        if k not in newx_to_ix: newx_to_ix[k] = len(newx_to_ix)
-
-                _to_ix[i] = newx_to_ix
-
-        return _to_ix
