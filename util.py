@@ -1,6 +1,64 @@
-# -*- coding: utf-8 -*-
+from pathlib import Path
+from model import Const
 
-# This file is from Pythainlp
+# get pred and correct tags (without padding) for computing accuracy
+def get_tags(seqs, xtags, lengths):
+    pred_tags = [seq[:length] for seq, length in zip(seqs, lengths)] 
+    tags = [xtag[:length] for xtag, length in zip(xtags.tolist(), lengths)]
+    return [pred_tags, tags]
+
+def create_pred_text(_to_ix, test_data, pred_tags, m_type='sy'):
+
+    tag_to_ix = _to_ix[-1]
+    ix_to_tag = {ix: tag for tag, ix in tag_to_ix.items()}
+    
+    # if model is bigram, we choose only the first char in bigram to build pred_text
+    if m_type=='bi': 
+        test_data = [([bi[0] for bi in bis], tags) for bis, tags in test_data]
+    elif m_type=='chctbi': 
+        test_data = [(chs, tags) for chs, _, _, tags in test_data]
+    elif m_type=='bictsy': 
+        test_data = [([bi[0] for bi in bis], tags) for bis, _, _, tags in test_data]
+
+    pred_text = ''
+    for i, tags in enumerate(pred_tags): # each line
+        pred_text += test_data[i][0][0] # first syllable
+        for j in range(1, len(tags)): # each next syllable
+            if ix_to_tag[tags[j]][0] == 'B': 
+                pred_text += '|' + test_data[i][0][j]
+            else: 
+                pred_text += test_data[i][0][j]
+        pred_text += '|' + '\n' # at the end of each line
+    pred_text = pred_text[:-2] + '\n' # correction at the end
+
+    return pred_text
+
+def evaluate(_to_ix, test_data, pred_tags, m_type):
+    answer_text = Path('dataset/answer_text.txt').read_text()
+    pred_text = create_pred_text(_to_ix, test_data, pred_tags, m_type)
+    Path('pred_text.txt').write_text(pred_text)
+    result = _compute_stats(answer_text, pred_text)
+    return result
+
+
+# The remaining code is from Pythainlp
+
+def preprocessing(txt: str, remove_space: bool = True) -> str:
+    
+    SEPARATOR = "|"
+    SURROUNDING_SEPS_RX = re.compile("{sep}? ?{sep}$".format(sep=re.escape(SEPARATOR)))
+    MULTIPLE_SEPS_RX = re.compile("{sep}+".format(sep=re.escape(SEPARATOR)))
+    TAG_RX = re.compile("<\/?[A-Z]+>")
+    TAILING_SEP_RX = re.compile("{sep}$".format(sep=re.escape(SEPARATOR)))
+
+    txt = re.sub(SURROUNDING_SEPS_RX, "", txt)
+    if remove_space:
+        txt = re.sub("\s+", "", txt)
+    txt = re.sub(MULTIPLE_SEPS_RX, SEPARATOR, txt)
+    txt = re.sub(TAG_RX, "", txt)
+    txt = re.sub(TAILING_SEP_RX, "", txt).strip()
+
+    return txt
 
 import sys
 import re
@@ -203,5 +261,4 @@ def _find_words_correctly_tokenised(ref_boundaries, predicted_boundaries):
     ref_b = dict(zip(ref_boundaries, [1]*len(ref_boundaries)))
 
     labels = tuple(map(lambda x: ref_b.get(x, 0), predicted_boundaries))
-    return labels
-    
+    return labels    

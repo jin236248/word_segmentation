@@ -1,12 +1,15 @@
+# code is adapted from 
+# https://pytorch.org/tutorials/beginner/nlp/advanced_tutorial.html
+# https://github.com/mtreviso/linear-chain-crf
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F # for emb drop out
 from torch.autograd import Variable # for emb drop out
 
-# code is adapted from 
-# https://pytorch.org/tutorials/beginner/nlp/advanced_tutorial.html
-# https://github.com/mtreviso/linear-chain-crf
+import pytorch_lightning as pl
 
+# for constant used across codes
 class Const:
     
     UNK_ID, UNK_TOKEN = 0, "<unk>"
@@ -16,32 +19,39 @@ class Const:
     PAD_TAG_ID, PAD_TAG_TOKEN = 0, "<pad>"
     BOS_TAG_ID, BOS_TAG_TOKEN = 1, "<bos>"
     EOS_TAG_ID, EOS_TAG_TOKEN = 2, "<eos>"
+
+# from init to y_pred and loss
+class BiLSTM_CRF(pl.LightningModule):
     
-class BiLSTM_CRF(nn.Module):
-    
-    def __init__(self, x1vocab_size, x2vocab_size=0, x3vocab_size=0, label_size=0, x1emb_dim=512, x2emb_dim=0, x3emb_dim=0, hidden_dim=1024):
+    def __init__(
+        self, n_vocab1=64, n_vocab2=0, n_vocab3=0, n_label=5,
+        emb1_dim=64, emb2_dim=0, emb3_dim=0, hid_dim=128,
+        m_type='sy', data_name='sy_1', lr=0.001, batch_size=1):
+
         super().__init__()
-        
-        self.hidden_dim = hidden_dim
-        
-        self.x1emb = nn.Embedding(x1vocab_size, x1emb_dim)
-        if x2vocab_size>0: self.x2emb = nn.Embedding(x2vocab_size, x2emb_dim)
-        if x3vocab_size>0: self.x3emb = nn.Embedding(x3vocab_size, x3emb_dim)
-        
-        total_emb_dim = x1emb_dim
-        if x2vocab_size>0: total_emb_dim += x2emb_dim
-        if x3vocab_size>0: total_emb_dim += x3emb_dim
-        self.lstm = nn.LSTM(total_emb_dim, hidden_dim // 2, bidirectional=True, batch_first=True)
-        
-        self.hidden2tag = nn.Linear(hidden_dim, label_size)
+
+        # add this so hparams will save to and load from checkpoint
+        self.save_hyperparameters()
+
+        self.m_type = m_type
+        self.data_name = data_name
+
+        self.x1emb = nn.Embedding(n_vocab1, emb1_dim)
+        self.hid_dim = hid_dim
+        self.hparams.lr = lr
+
+        total_emb_dim = emb1_dim
+        self.lstm = nn.LSTM(
+            total_emb_dim, hid_dim // 2, bidirectional=True, batch_first=True)
+
+        self.hidden2tag = nn.Linear(hid_dim, n_label)
         self.hidden = None
         self.dropout = nn.Dropout(p=0.2)
-        self.nb_labels = label_size
         self.BOS_TAG_ID = Const.BOS_TAG_ID
         self.EOS_TAG_ID = Const.EOS_TAG_ID
         self.PAD_TAG_ID = Const.PAD_TAG_ID
         self.batch_first = True
-        self.transitions = nn.Parameter(torch.empty(self.nb_labels, self.nb_labels))
+        self.transitions = nn.Parameter(torch.empty(n_label, n_label))
         self.init_weights()
         
     def init_weights(self):
@@ -50,30 +60,39 @@ class BiLSTM_CRF(nn.Module):
         self.transitions.data[self.EOS_TAG_ID, :] = -10000.0
 
         if self.PAD_TAG_ID is not None:
-            self.transitions.data[self.PAD_TAG_ID, :] = -10000.0 # no transitions from padding
-            self.transitions.data[:, self.PAD_TAG_ID] = -10000.0 # no transitions to padding
-            self.transitions.data[self.PAD_TAG_ID, self.EOS_TAG_ID] = 0.0 # except if the end of sentence is reached or we are already in a pad position
+            # no transitions from padding
+            self.transitions.data[self.PAD_TAG_ID, :] = -10000.0 
+            # no transitions to padding
+            self.transitions.data[:, self.PAD_TAG_ID] = -10000.0 
+            # except if the end of sentence is reached or we are already in a pad position
+            self.transitions.data[self.PAD_TAG_ID, self.EOS_TAG_ID] = 0.0 
             self.transitions.data[self.PAD_TAG_ID, self.PAD_TAG_ID] = 0.0
         
     def init_hidden(self, batch_size):
-        return (torch.randn(2, batch_size, self.hidden_dim // 2).cuda(), torch.randn(2, batch_size, self.hidden_dim // 2).cuda())
+        return (
+            torch.randn(2, batch_size, self.hid_dim // 2).to(self.device), 
+            torch.randn(2, batch_size, self.hid_dim // 2).to(self.device))
     
     def embed_dropout(self, embed, words, dropout=0.1):
         
-        mask = embed.weight.data.new().resize_((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(embed.weight) / (1 - dropout)
+        mask = embed.weight.data.new().resize_((embed.weight.size(0), 1))
+        mask = mask.bernoulli_(1 - dropout)
+        mask = mask.expand_as(embed.weight) / (1 - dropout)
         mask = Variable(mask)
         masked_embed_weight = mask * embed.weight
 
         padding_idx = embed.padding_idx
         if padding_idx is None: padding_idx = -1
-        X = F.embedding(words, masked_embed_weight, padding_idx, embed.max_norm, embed.norm_type, embed.scale_grad_by_freq, embed.sparse)
+        X = F.embedding(
+            words, masked_embed_weight, padding_idx, embed.max_norm, 
+            embed.norm_type, embed.scale_grad_by_freq, embed.sparse)
 
         return X
 
     def compute_scores(self, emissions, tags, mask):
         
         batch_size, seq_length = tags.shape
-        scores = torch.zeros(batch_size).cuda()
+        scores = torch.zeros(batch_size).to(self.device)
 
         first_tags = tags[:, 0]
         last_valid_idx = mask.int().sum(1) - 1
@@ -106,7 +125,7 @@ class BiLSTM_CRF(nn.Module):
 
         return best_path
     
-    def forward(self, x1s, x2s, x3s, tags, mask=None, drop=True):
+    def forward(self, x1s, x2s, x3s, tags, mask=None, drop=False):
         
         self.hidden = self.init_hidden(x1s.shape[0])
         
@@ -128,7 +147,7 @@ class BiLSTM_CRF(nn.Module):
         emissions = self.hidden2tag(x)
         if mask is None: mask = torch.ones(emissions.shape[:2], dtype=torch.float)
             
-        batch_size, seq_length, nb_labels = emissions.shape
+        batch_size, seq_length, n_label = emissions.shape
         alphas = self.transitions[self.BOS_TAG_ID, :].unsqueeze(0) + emissions[:, 0]
         backpointers = []
 
@@ -160,5 +179,4 @@ class BiLSTM_CRF(nn.Module):
         gold_scores = self.compute_scores(emissions, tags, mask=mask)        
         loss = torch.sum(partition - gold_scores)
     
-        return max_final_scores, best_sequences, loss
-        
+        return best_sequences, loss
