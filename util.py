@@ -40,6 +40,9 @@ def evaluate(_to_ix, test_data, pred_tags, m_type):
     result = _compute_stats(answer_text, pred_text)
     return result
 
+def show_progress(i, onetenth):
+    if i % onetenth == onetenth - 1:print(i // onetenth, end='')
+
 
 # The remaining code is from Pythainlp
 
@@ -97,14 +100,14 @@ def benchmark(ref_samples, samples):
                 results.append(stats)
         except:
             reason = """
-[Error]
-Reason: %s
-Pair (i=%d)
---- label
-%s
---- sample
-%s
-""" % (sys.exc_info(), i, r, s)
+                [Error]
+                Reason: %s
+                Pair (i=%d)
+                --- label
+                %s
+                --- sample
+                %s
+                """ % (sys.exc_info(), i, r, s)
 
             raise SystemExit(reason)
 

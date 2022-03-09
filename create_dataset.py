@@ -2,8 +2,31 @@ import re, json, os
 from collections import Counter
 from ssg import syllable_tokenize as stok
 from model import Const
-from util.util import *
+from util import *
 
+# This dictionary is from https://github.com/rkcosmos/deepcut/blob/master/deepcut/utils.py
+CHAR_TYPE = {
+    u'กขฃคฆงจชซญฎฏฐฑฒณดตถทธนบปพฟภมยรลวศษสฬอ': 'c',
+    u'ฅฉผฟฌหฮ': 'n',
+    u'ะาำิีืึุู': 'v',  # า ะ ำ ิ ี ึ ื ั ู ุ
+    u'เแโใไ': 'w',
+    u'่้๊๋': 't', # วรรณยุกต์ ่ ้ ๊ ๋
+    u'์ๆฯ.': 's', # ์  ๆ ฯ .
+    u'0123456789๑๒๓๔๕๖๗๘๙': 'd',
+    u'"': 'q',
+    u"‘": 'q',
+    u"’": 'q',
+    u"'": 'q',
+    u' ': 'p',
+    u'abcdefghijklmnopqrstuvwxyz': 's_e',
+    u'ABCDEFGHIJKLMNOPQRSTUVWXYZ': 'b_e'
+}
+
+CHAR_TYPE_FLATTEN = {}
+for ks, v in CHAR_TYPE.items():
+    for k in ks:
+        CHAR_TYPE_FLATTEN[k] = v
+    
 def get_vocabs(train_data):
     
     # begin with some constant
@@ -258,7 +281,6 @@ def build_dataset(data_name, charlevel=True, min_freq=None):
                 
             show_progress(i, onetenth) # for tracking progress
                 
-        alldataset.append(dataset)
         print('', directory, 'length =', len(dataset))
 
         if directory == 'train':
